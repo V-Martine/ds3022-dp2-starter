@@ -26,7 +26,8 @@ import os
 import time
 
 import boto3
-from moto import logs
+import duckdb
+from moto import connect, logs
 import requests
 from dotenv import load_dotenv
 from prefect import flow, task, get_run_logger
@@ -104,12 +105,87 @@ def monitor_queue(queue_url: str, poll_s: int = 5, timeout_s: int = 1200) -> dic
         time.sleep(min(poll_s, remaining))                              # waits for poll_s seconds before checking again
 
 
-@task
-def collect_messages(queue_url: str, expected: int = 21) -> int:
+@task # added a timeout limit to the skeleton def 
+def collect_messages(queue_url: str, expected: int = 21, timeout_s: int = 1200) -> int:
     """Receive, land in DuckDB, then delete. Return how many fragments are stored."""
     # TODO (Checkpoint B): MessageAttributeNames=["All"] and resp.get("Messages", [])
-    raise NotImplementedError
+    logger = get_run_logger()
+    deadline = time.monotonic() + timeout_s
+    stored = 0 # keeps a running counter of the stored messages 
 
+    con = duckdb.connect(DUCKDB_PATH) # establishes a connection to the DuckDB database
+    try: 
+        con.execute("CREATE SCHEMA IF NOT EXISTS raw") # creates the schema if it doesn't exist
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS raw.fragments (
+                order_no VARCHAR, 
+                word VARCHAR,
+                received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        while True: 
+            counts = get_counts(queue_url) # retrieves the current counts from the queue
+
+            # finish once we've hit all 21 stored messages 
+            # need to ensure that the messages are also unique and not duplicates 
+            if stored >= 21 and all(value == 0 for value in counts.values()): # checks if there are any visible messages left
+                logger.info("Collection complete: stored =%d, counts=%s", stored, counts)
+                return {"stored": stored, "counts": counts} # returns the final counts and the number of stored messages
+
+            if time.monotonic() >= deadline: # checks if the timeout has been reached
+                raise TimeoutError(
+                f"Collection timed out: stored {stored}/21 fragments"
+                f"queue counts = {counts} after {timeout_s} seconds"
+                )
+
+            response = sqs.receive_message(
+                QueueUrl=queue_url,
+                MaxNumberOfMessages=10, # retrieves up to 10 messages at a time
+                WaitTimeSeconds=5, # long polling for 5 seconds
+                MessageAttributeNames=["All"] # retrieves all message attributes
+            )
+
+            # SQS may omit the "Messages" key if there are no messages available
+            for msg in response.get("Messages", []): # iterates over the received messages
+                atts = msg["MessageAttributes"] # extracts the message attributes
+                order_no = atts["order_no"]["StringValue"] # extracts the order number from the message attributes
+                word = atts["word"]["StringValue"] # extracts the word from the message attributes
+
+                existing = con.execute(
+                    "SELECT word FROM raw.fragments WHERE order_no = ?",
+                    [order_no],
+                ).fetchone() # checks if the message has already been stored in the database
+
+                if not existing: # only insert the message if it hasn't been stored already
+                    con.execute(
+                        """
+                        INSERT INTO raw.fragments (order_no, word, recieved_at) \
+                        VALUES (?, ?, current_timestamp),
+                        """ 
+                        [order_no, word] # inserts the order number and word into the DuckDB table
+                    )
+                elif existing[0] != word: # checks if the existing word is different from the new word
+                    # needed to prevent duplicates!! 
+                    raise ValueError(
+                        f"Conflicting words for order_no {order_no}: existing={existing[0]}, new={word}"
+                    )
+                else: 
+                    logger.info("Repeat delivery for order_no=%s; skipping insert")
+
+                sqs.delete_message( # deletes the message from the queue to prevent reprocessing
+                    QueueUrl=queue_url,
+                    ReceiptHandle=msg["ReceiptHandle"]
+                )
+
+            stored += 1 # increments the stored counter
+            logger.info("Stored and deleted fragment: order_no=%s, word=%s", order_no, word) # logs the stored fragment details
+
+    except Exception as e:
+        logger.error(f"Error occurred while executing DuckDB commands: {e}")
+        raise
+    finally:
+        con.close()
 
 @task
 def dbt_build() -> None:

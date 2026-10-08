@@ -6,11 +6,11 @@ Update **PROGRESS.md** (done / next / blocked) at the end of every work session.
 ## Checkpoint A (Lesson 9, Mon 05 Oct): queue up and visible
 
 - [X] Virtual environment active, `.env` has your `UVA_ID`, and `python kit/smoke_test.py` prints `Emulator OK`
-- [] `populate_queue` POSTs to the scatter API and logs your queue URL
-- [ ] `get_counts` and `monitor_queue` log the visible, not visible and delayed counts until Delayed reaches 0
-- [ ] The flow run is **Completed** and visible in the Prefect dashboard; screenshot saved in `docs/`
+- [X] `populate_queue` POSTs to the scatter API and logs your queue URL
+- [X] `get_counts` and `monitor_queue` log the visible, not visible and delayed counts until Delayed reaches 0
+- [X] The flow run is **Completed** and visible in the Prefect dashboard; screenshot saved in `docs/`
 - [ ] DAG sketch saved as `docs/dag.jpg`; polling strategy explained in your README
-- [ ] `PROGRESS.md` updated and everything pushed
+- [X] `PROGRESS.md` updated and everything pushed
 
 ## Checkpoints B to D: required, target for Lesson 10 (Thu 08 Oct)
 
@@ -18,10 +18,10 @@ Aim to finish B, C and D in Lesson 10. If you do not finish in class, complete t
 
 ## Checkpoint B: collect without losing anything
 
-- [ ] `collect_messages` receives until 21 fragments are stored or a timeout is reached, logging progress
-- [ ] Uses `MessageAttributeNames=["All"]` and `resp.get("Messages", [])`
-- [ ] Each fragment is inserted into `raw.fragments` (DuckDB) **before** `delete_message`
-- [ ] After a run, all three queue counters are 0 (no dangling messages)
+- [X] `collect_messages` receives until 21 fragments are stored or a timeout is reached, logging progress
+- [X] Uses `MessageAttributeNames=["All"]` and `resp.get("Messages", [])`
+- [X] Each fragment is inserted into `raw.fragments` (DuckDB) **before** `delete_message`
+- [X] After a run, all three queue counters are 0 (no dangling messages)
 - [ ] Clear failure message if fewer than 21 fragments arrive before the timeout
 
 ## Checkpoint C: dbt quality gate
