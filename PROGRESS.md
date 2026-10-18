@@ -11,3 +11,8 @@ Add a new entry at the end of every session (and whenever you stop working).
 - Done: Set-up complete, Checkpoint A completed and updated
 - Next: Checkpoint B
 - Blocked: having issues with all of my logger messages show ? 
+
+## Sun 18 Oct (working at home)
+- Done: Checkpoint B 
+- Next: started working on checkpoint C, had to do a lot of debugging to get the terminals working :/
+

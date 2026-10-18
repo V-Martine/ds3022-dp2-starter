@@ -22,12 +22,12 @@ Aim to finish B, C and D in Lesson 10. If you do not finish in class, complete t
 - [X] Uses `MessageAttributeNames=["All"]` and `resp.get("Messages", [])`
 - [X] Each fragment is inserted into `raw.fragments` (DuckDB) **before** `delete_message`
 - [X] After a run, all three queue counters are 0 (no dangling messages)
-- [ ] Clear failure message if fewer than 21 fragments arrive before the timeout
+- [X] Clear failure message if fewer than 21 fragments arrive before the timeout
 
 ## Checkpoint C: dbt quality gate
 
-- [ ] `dbt/models/staging/stg_fragments.sql` (integer `order_no`, cleaned `word`, safe against duplicates)
-- [ ] `dbt/models/staging/schema.yml` with generic tests
+- [X] `dbt/models/staging/stg_fragments.sql` (integer `order_no`, cleaned `word`, safe against duplicates)
+- [X] `dbt/models/staging/schema.yml` with generic tests
 - [ ] A singular test in `dbt/tests/` for "exactly 21 fragments, no gaps"
 - [ ] `dbt/models/marts/assembled_phrase.sql` returns the ordered phrase
 - [ ] You made the tests **fail on purpose** (delete a row, duplicate a row in `raw.fragments`) and then pass again; screenshots in `docs/`

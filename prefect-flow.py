@@ -19,8 +19,8 @@ Use Prefect's logger (get_run_logger) for logging. Never hard-code your
 computing ID or the endpoint: read them from the environment (.env).
 """
 # Victoria Martinez 
-# October 8th, 2026 - DS 3022 
-# last update: 
+# October 18th, 2026 - DS 3022 
+# last update: working on checkpoint B
 
 import os
 import time
@@ -85,7 +85,7 @@ def monitor_queue(queue_url: str, poll_s: int = 5, timeout_s: int = 1200) -> dic
     """Log the three counters every poll_s seconds until nothing is delayed; raise after timeout_s."""
     # TODO (Checkpoint A)
     logger = get_run_logger() 
-    deadline = time.time() + timeout_s                  # sets a deadline for the monitoring loop, avoids infinite loops
+    deadline = time.monotonic() + timeout_s                  # sets a deadline for the monitoring loop, avoids infinite loops
     while True:                                         # conditional so that the loop continues until the delayed count is 0 or the timeout is reached
         counts = get_counts(queue_url)                  # retrieves the current counts from the queue
         logger.info(                                    # logs the current counts for visibility
@@ -135,8 +135,8 @@ def collect_messages(queue_url: str, expected: int = 21, timeout_s: int = 1200) 
 
             if time.monotonic() >= deadline: # checks if the timeout has been reached
                 raise TimeoutError(
-                f"Collection timed out: stored {stored}/21 fragments"
-                f"queue counts = {counts} after {timeout_s} seconds"
+                    f"Collection timed out: stored {stored}/{expected} fragments; "
+                    f"queue counts={counts} after {timeout_s} seconds"
                 )
 
             response = sqs.receive_message(
@@ -157,29 +157,42 @@ def collect_messages(queue_url: str, expected: int = 21, timeout_s: int = 1200) 
                     [order_no],
                 ).fetchone() # checks if the message has already been stored in the database
 
+                inserted = False # flag to track if the message was inserted
+
                 if not existing: # only insert the message if it hasn't been stored already
                     con.execute(
                         """
-                        INSERT INTO raw.fragments (order_no, word, recieved_at) \
-                        VALUES (?, ?, current_timestamp),
-                        """ 
-                        [order_no, word] # inserts the order number and word into the DuckDB table
+                        INSERT INTO raw.fragments (order_no, word, received_at) \
+                        VALUES (?, ?, current_timestamp)
+                        """,
+                        [order_no, word], # inserts the order number and word into the DuckDB table
                     )
+                    inserted = True
+                    stored += 1 # increments the stored counter
+
                 elif existing[0] != word: # checks if the existing word is different from the new word
                     # needed to prevent duplicates!! 
                     raise ValueError(
                         f"Conflicting words for order_no {order_no}: existing={existing[0]}, new={word}"
                     )
                 else: 
-                    logger.info("Repeat delivery for order_no=%s; skipping insert")
+                    logger.info(
+                        "Repeat delivery for order_no=%s; skipping insert", 
+                        order_no, 
+                    )
 
                 sqs.delete_message( # deletes the message from the queue to prevent reprocessing
                     QueueUrl=queue_url,
                     ReceiptHandle=msg["ReceiptHandle"]
                 )
 
-            stored += 1 # increments the stored counter
-            logger.info("Stored and deleted fragment: order_no=%s, word=%s", order_no, word) # logs the stored fragment details
+                if inserted: 
+                    logger.info(
+                        "Stored fragment: order_no=%s, word=%s; stored=%d/%d", 
+                        order_no, word, stored, expected
+                    )
+
+            
 
     except Exception as e:
         logger.error(f"Error occurred while executing DuckDB commands: {e}")
@@ -190,7 +203,9 @@ def collect_messages(queue_url: str, expected: int = 21, timeout_s: int = 1200) 
 @task
 def dbt_build() -> None:
     """Run `dbt build --project-dir dbt --profiles-dir dbt`; raise if anything fails."""
-    # TODO (Checkpoint C)
+    # TODO (Checkpoint C) - October 18 
+    
+
     raise NotImplementedError
 
 
@@ -212,6 +227,7 @@ def submit_solution(phrase: str, platform: str = "prefect") -> int:
 def dp2_pipeline():
     queue_url = populate_queue()
     monitor_queue(queue_url)
+    collect_messages(queue_url)
     # TODO (Lesson 10): collect_messages -> dbt_build -> read_phrase -> submit_solution
 
 
