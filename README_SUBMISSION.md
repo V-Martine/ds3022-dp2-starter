@@ -39,3 +39,9 @@ dbt then builds the 'assembled_phrase' only when all of the tests pass.
 
 ## Git-Ignore:
 `.env`, `*.duckdb`, `dbt/target/` and logs are git-ignored.
+
+Passing submission:
+(.venv) (base) papi@Victoria-MacBook-7 ds3022-dp2-starter % python kit/check_submission.py
+PASS  yqg3zy / prefect  receipt: 126A1DEA8F
+
+1/1 submission(s) correct. Checked submissions were removed.
