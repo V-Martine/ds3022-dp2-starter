@@ -2,7 +2,7 @@
 ### Victoria Martinez - October 19 - UVA id: yqg3zy 
 ### Submission README that explains my pipeline 
 
-Prefect flow `dp2-pipeline` in prefect-flow.py populates my SQS queue, collects the 21 delayed fragements (differing in the length of the delay between messages), lands them in DuckDB (`raw_fragements), runs `dbt build` as a quality gate and then submits the assembled phrase to "dp2-submit` only if dbt passes. 
+Prefect flow `dp2-pipeline` in prefect-flow.py populates my SQS queue, collects the 21 delayed fragements (differing in the length of the delay between messages), lands them in DuckDB (`raw_fragements`), runs `dbt build` as a quality gate and then submits the assembled phrase to "dp2-submit` only if dbt passes. 
 
 My pipeline: 
 ![DAG](docs/dag.jpeg)
@@ -88,7 +88,9 @@ Screenshot: ![DAG](docs/all_passing_test.png)
 
 ## Submission Messages: 
 Passing submission:
+```
 (.venv) (base) papi@Victoria-MacBook-7 ds3022-dp2-starter % python kit/check_submission.py
 PASS  yqg3zy / prefect  receipt: 126A1DEA8F
 
 1/1 submission(s) correct. Checked submissions were removed.
+```
