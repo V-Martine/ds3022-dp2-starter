@@ -61,7 +61,7 @@ dbt then builds the `assembled_phrase` only when all of the tests pass.
 ### Checkpoint A Screenshots: 
 Working prefect flow and SET-UP done correctly: 
 
-![DAG](docs/cp_A.png.png)
+![DAG](docs/cp_A.png)
 ![DAG](docs/cp_A_2.png)
 
 ### Checkpoint C Screenshots:  
