@@ -1,5 +1,5 @@
 # DS 3022 Data Project 2 (Fall 2026): The SQS Puzzle
-
+# Victoria Martinez - October 19 
 This data project is a puzzle. Your goal is to put the pieces back together in the right order.
 
 You will write a **Prefect** data pipeline that retrieves 21 messages from an SQS queue, parses their contents, and reassembles a complete phrase from the fragments, one word per message. Your pipeline can run a single time to produce a complete result, or it can run on a schedule. Design your workflow however you see fit. You can run it as many times as you like while testing.
@@ -65,6 +65,8 @@ The response gives you your queue URL:
 Your request sends exactly **21** messages to your queue, each with a random `DelaySeconds` between **30 and 900 seconds** (5 to 60 seconds while `DP2_FAST=1`, for development). **Keep these delays in mind as your pipeline proceeds to the next task.**
 
 **NOTE:** Do not repeat this POST if your pipeline runs more than once (for example on a schedule) or inside a retry loop. Each POST empties your queue and sends all 21 messages again.
+
+
 
 ## Task 2: Monitor your queue, then collect, land and delete
 

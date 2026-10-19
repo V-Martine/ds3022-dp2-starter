@@ -203,7 +203,8 @@ def collect_messages(queue_url: str, expected: int = 21, timeout_s: int = 1200) 
 @task
 def dbt_build() -> None:
     """Run `dbt build --project-dir dbt --profiles-dir dbt`; raise if anything fails."""
-    # TODO (Checkpoint C) - October 18 
+    # TODO (Checkpoint C) - October 19 
+    
     
 
     raise NotImplementedError
@@ -228,6 +229,7 @@ def dp2_pipeline():
     queue_url = populate_queue()
     monitor_queue(queue_url)
     collect_messages(queue_url)
+
     # TODO (Lesson 10): collect_messages -> dbt_build -> read_phrase -> submit_solution
 
 

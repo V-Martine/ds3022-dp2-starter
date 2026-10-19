@@ -9,7 +9,7 @@ Update **PROGRESS.md** (done / next / blocked) at the end of every work session.
 - [X] `populate_queue` POSTs to the scatter API and logs your queue URL
 - [X] `get_counts` and `monitor_queue` log the visible, not visible and delayed counts until Delayed reaches 0
 - [X] The flow run is **Completed** and visible in the Prefect dashboard; screenshot saved in `docs/`
-- [ ] DAG sketch saved as `docs/dag.jpg`; polling strategy explained in your README
+- [X] DAG sketch saved as `docs/dag.jpg`; polling strategy explained in your README
 - [X] `PROGRESS.md` updated and everything pushed
 
 ## Checkpoints B to D: required, target for Lesson 10 (Thu 08 Oct)
