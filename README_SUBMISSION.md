@@ -2,21 +2,21 @@
 ### Victoria Martinez - October 19 - UVA id: yqg3zy 
 ### Submission README that explains my pipeline 
 
-Prefect flow 'dp2-pipeline' in prefect-flow.py populates my SQS queue, collects the 21 delayed fragements (differing in the length of the delay between messages), lands them in DuckDB ('raw_fragements), runs 'dbt build' as a quality gate and then submits the assembled phrase to "dp2-submit' only if dbt passes. 
+Prefect flow `dp2-pipeline` in prefect-flow.py populates my SQS queue, collects the 21 delayed fragements (differing in the length of the delay between messages), lands them in DuckDB (`raw_fragements), runs `dbt build` as a quality gate and then submits the assembled phrase to "dp2-submit` only if dbt passes. 
 
 My pipeline: 
 ![DAG](docs/dag.jpeg)
 
-'''
+```
 populate_queue -> monitor_queue -> collect_messages -> dbt_build -> read_phrase -> submit_solution
-'''
+```
 
 ## Setup and Run Instructions: 
 1. Followed the SETUP.md to set up the venv and requirements: `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
-2. Set up the .env and added my 'UVA_ID' 
-3. Followed the SETUP.md for the four terminals (SQS emulator, scatter API, Prefect server, working terminal: T1: 'moto_server -p 9324', 
-T2: 'python kit/scatter_api.py', T3: 'python kit/smoke_test.py', and T4: 'prefect config set PREFECT_API_URL="http://127.0.0.1:4200/api"
-prefect server start')
+2. Set up the .env and added my `UVA_ID`
+3. Followed the SETUP.md for the four terminals (SQS emulator, scatter API, Prefect server, working terminal: T1: `moto_server -p 9324`, 
+T2: `python kit/scatter_api.py`, T3: `python kit/smoke_test.py`, and T4: `prefect config set PREFECT_API_URL="http://127.0.0.1:4200/api"
+prefect server start`)
 4. Made sure that `python kit/smoke_test.py` prints `Emulator OK`. 
 5. Tested the submission from the **repo root**: `python prefect-flow.py`, then `python kit/check_submission.py`.
 
@@ -25,43 +25,66 @@ prefect server start')
 `DP2_FAST` (1 = 5-60 s delays, 0 = 30-900 s).
 
 ## My polling strategy: 
-### Tasks in 'prefect-flow.py' 
-1. 'monitor_queue': polls every 5 secs and logs the visible/not visible/delayed messages. Includes both a countdown for progress and a timeout.  
-2. 'collect_messages': ensured that the target number to receive is 21 unique messages by cross-checking with the 'counts.values'. Kept both a tracker for inserting and existing to ensure that all a duplicate message not stored twice and deletes the message from the queue to prevent anything reprocessing. 
-3. 'dbt_build': runs a check for the dbt pipeline and returns the same tests as running dbt by hand. 
-4. 'read_phrase': checks if a phrase exists in the 'main.assembled_phrase' and reads it from the dbt mart model in DuckDB 
+### Tasks in `prefect-flow.py` 
+1. `monitor_queue`: polls every 5 secs and logs the visible/not visible/delayed messages. Includes both a countdown for progress and a timeout.  
+2. `collect_messages`: ensured that the target number to receive is 21 unique messages by cross-checking with the `counts.values`. Kept both a tracker for inserting and existing to ensure that all a duplicate message not stored twice and deletes the message from the queue to prevent anything reprocessing. 
+3. `dbt_build`: runs a check for the dbt pipeline and returns the same tests as running dbt by hand. 
+4. `read_phrase`: checks if a phrase exists in the `main.assembled_phrase` and reads it from the dbt mart model in DuckDB 
 5. submit_solution: provides 2 retries in case it fails due to the wrong order or missing word. Returns the message attributes of UVA-ID, the phrase and the platform along with the HTTP status when submitting the solution. 
 
 
 ### Receive -> persist -> delete: 
-For each of the messages, (1) read 'order_no' and 'word' from 'MessageAttributes' (2) INSERT into 'raw.fragements, and then (3) 'delete_message'. If the message crashes between the save/insert step and the delete step (steps 2 and 3), the message reappears after the visibility timeout and is a "repeat delivery". This means that the code skips the insert (same order_no and word) but still deletes it. But, if it crashes before the insert step, nothing is lost because the message is still on the queue. This ensures that a fraqgment is never deleted before it is safely stored. 
+For each of the messages: 
+1. read `order_no` and `word` from `MessageAttributes` 2. INSERT into `raw.fragements, and then 
+3.`delete_message`. 
+
+**What happens if the flow crashes between steps**: If the message crashes between the save/insert step and the delete step (steps 2 and 3), the message reappears after the visibility timeout and is a "repeat delivery". This means that the code skips the insert (same order_no and word) but still deletes it. But, if it crashes before the insert step, nothing is lost because the message is still on the queue. This ensures that a fragment is never deleted before it is safely stored. 
 For example: INSERT EXAMPLE FROM SAME ORDER_NO
 
+**"Chaos round" Section:** 
+1. What broke: 
+2. Why: 
+3. How I fixed it: 
+
+### Tool Roles: 
+1. **Prefect:**
+2. **dbt:** The `stg_fragments` trims and casts the `order_no` to an integer and deduplicates all of the exact repeats (where `order_no` and `word` both match). For the uniqueness test: I added checks to ensure that both are non-null and that `order_no` is unique. If there is a match, both rows remain in staging and the uniqueness test fails. 
+
+The `assert_complete_sequence` tests that the staging (1) contains 21 fragments, (2) starts at order 1, (3) ends at order 21 and (4) has no gaps. 
+dbt then builds the `assembled_phrase` only when all of the tests pass. 
+3. **DuckDB:**
+
 ### dbt process and tests
-The 'stg_fragments' trims and casts the 'order_no' to an integer and deduplicates all of the exact repeats (where 'order_no' and 'word' both match). For the uniqueness test: I added checks to ensure that both are non-null and that 'order_no' is unique. If there is a match, both rows remain in staging and the uniqueness test fails. 
-The 'assert_complete_sequence' tests that the staging (1) contains 21 fragments, (2) starts at order 1, (3) ends at order 21 and (4) has no gaps. 
-dbt then builds the 'assembled_phrase' only when all of the tests pass. 
+
 
 ## Evidence Screenshots: 
 ### Checkpoint A Screenshots: 
 Working prefect flow and SET-UP done correctly: 
-![DAG](docs/Checkpoint A - ss.png)
-![DAG](docs/Checkpoint A - ss 2.png)
+
+![DAG](docs/cp_A.png.png)
+![DAG](docs/cp_A_2.png)
 
 ### Checkpoint C Screenshots:  
-From slides: 'dbt build --project-dir dbt --profiles-dir dbt' → FAIL on 'assert_complete_sequence', 'assembled_phrase' SKIP
+From slides: `dbt build --project-dir dbt --profiles-dir dbt` → FAIL on `assert_complete_sequence`, `assembled_phrase` SKIP
 Screenshot: 
 ![DAG](docs/failed_test.png)
 
-Second test: add ('7', 'oops', current_timestamp) to a clean table: unique fails too. 
+Second test: add (`7`, `oops`, current_timestamp) to a clean table: unique fails too. 
 Screenshot: 
 ![DAG](docs/conflicting_test.png)
 
 Third test: fixed and rerun to all green: 
 Screenshot: ![DAG](docs/all_passing_test.png)
 
+### Full Evidence Run: 
+
+
+### Chaos Run: 
+
 ## Git-Ignore:
 `.env`, `*.duckdb`, `dbt/target/` and logs are git-ignored.
+
+`kit/` is unmodifed. 
 
 ## Submission Messages: 
 Passing submission:
