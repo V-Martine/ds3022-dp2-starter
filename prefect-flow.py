@@ -31,6 +31,9 @@ from moto import connect, logs
 import requests
 from dotenv import load_dotenv
 from prefect import flow, task, get_run_logger
+# for checkpoint C: 
+from pathlib import Path
+from dbt.cli.main import dbtRunner
 
 load_dotenv()
 
@@ -204,24 +207,70 @@ def collect_messages(queue_url: str, expected: int = 21, timeout_s: int = 1200) 
 def dbt_build() -> None:
     """Run `dbt build --project-dir dbt --profiles-dir dbt`; raise if anything fails."""
     # TODO (Checkpoint C) - October 19 
-    
-    
+    logger = get_run_logger()
+    repo_root = Path(__file__).resolve().parent
 
-    raise NotImplementedError
+    result = dbtRunner().invoke([
+        "build", 
+        "--project-dir", str(repo_root / "dbt"), 
+        "--profiles-dir", str(repo_root / "dbt")
+    ])
+
+    if not result.success:
+        raise RuntimeError("dbt build/tests failed")
+    logger.info("dbt build/tests succeeded: everything is green! :)")
+    # raise NotImplementedError - don't need this
 
 
 @task
 def read_phrase() -> str:
     """Read the phrase from the dbt mart model in DuckDB."""
     # TODO (Checkpoint C)
-    raise NotImplementedError
+    logger = get_run_logger()
+
+    with duckdb.connect(DUCKDB_PATH) as con:
+        row = con.execute(
+        "SELECT fragment_count, phrase FROM main.assembled_phrase"
+        ).fetchone()
+
+    if row is None:
+        raise ValueError("No phrase found in assembled_phrase table")
+
+    fragment_count, phrase = row
+    if fragment_count != 21 or not phrase:
+        raise RuntimeError(
+            f"Invalid assembled phrase: count={fragment_count}, phrase='{phrase!r}'"
+        )
+    logger.info("Assembled %d fragments: %s", fragment_count, phrase)
+    return phrase
+    # raise NotImplementedError
 
 
-@task
+@task(retries=2, retry_delay_seconds=5)
 def submit_solution(phrase: str, platform: str = "prefect") -> int:
     """Send to dp2-submit with uvaid / phrase / platform attributes. Return the HTTP status code."""
     # TODO (Checkpoint D)
-    raise NotImplementedError
+    logger = get_run_logger()
+
+    url = sqs.get_queue_url(
+        QueueName="dp2-submit"
+    )["QueueUrl"]
+
+    resp = sqs.send_message(
+        QueueUrl=url, MessageBody="dp2 solution",
+        MessageAttributes={
+            "uvaid":    {"DataType": "String", "StringValue": UVA_ID},
+            "phrase":   {"DataType": "String", "StringValue": phrase},
+            "platform": {"DataType": "String", "StringValue": platform}})
+    
+    status = resp["ResponseMetadata"]["HTTPStatusCode"]
+    logger.info("Submitted solution, HTTP status: %s", status)
+
+    if status != 200:
+        raise RuntimeError(f"Submission returned HTTP {status}")
+    
+    return status
+    # don't need this! raise NotImplementedError
 
 
 @flow(name="dp2-pipeline", log_prints=True)
@@ -229,6 +278,9 @@ def dp2_pipeline():
     queue_url = populate_queue()
     monitor_queue(queue_url)
     collect_messages(queue_url)
+    dbt_build()
+    phrase = read_phrase()
+    submit_solution(phrase)
 
     # TODO (Lesson 10): collect_messages -> dbt_build -> read_phrase -> submit_solution
 

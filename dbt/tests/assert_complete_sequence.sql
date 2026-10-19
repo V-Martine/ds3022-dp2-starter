@@ -9,4 +9,4 @@ from {{ ref('stg_fragments') }}
 having count(*) <> {{ var('expected_fragments', 21) }}
     or max(order_no) - min(order_no) + 1 <> count(*)
     or min(order_no) <> 1
-or max(order_no) <> {{ var('expected_fragments', 21) }}
+    or max(order_no) <> {{ var('expected_fragments', 21) }}

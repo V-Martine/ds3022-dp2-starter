@@ -32,5 +32,10 @@ populate_queue -> monitor_queue -> collect_messages -> dbt_build -> read_phrase 
 For each of the messages, (1) read 'order_no' and 'word' from 'MessageAttributes' (2) INSERT into 'raw.fragements, and then (3) 'delete_message'. If the message crashes between the save/insert step and the delete step (steps 2 and 3), the message reappears after the visibility timeout and is a "repeat delivery". This means that the code skips the insert (same order_no and word) but still deletes it. But, if it crashes before the insert step, nothing is lost because the message is still on the queue. This ensures that a fraqgment is never deleted before it is safely stored. 
 For example: INSERT EXAMPLE FROM SAME ORDER_NO
 
+### dbt process and tests
+The 'stg_fragments' trims and casts the 'order_no' to an integer and deduplicates all of the exact repeats (where 'order_no' and 'word' both match). For the uniqueness test: I added checks to ensure that both are non-null and that 'order_no' is unique. If there is a match, both rows remain in staging and the uniqueness test fails. 
+The 'assert_complete_sequence' tests that the staging (1) contains 21 fragments, (2) starts at order 1, (3) ends at order 21 and (4) has no gaps. 
+dbt then builds the 'assembled_phrase' only when all of the tests pass. 
+
 ## Git-Ignore:
 `.env`, `*.duckdb`, `dbt/target/` and logs are git-ignored.
