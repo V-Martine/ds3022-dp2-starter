@@ -31,9 +31,12 @@ from moto import connect, logs
 import requests
 from dotenv import load_dotenv
 from prefect import flow, task, get_run_logger
+
 # for checkpoint C: 
 from pathlib import Path
 from dbt.cli.main import dbtRunner
+
+# for chaos + adding the landing table
 
 load_dotenv()
 
@@ -43,6 +46,53 @@ DUCKDB_PATH = os.environ.get("DP2_DUCKDB", "dp2.duckdb")
 
 sqs = boto3.client("sqs")  # the endpoint comes from AWS_ENDPOINT_URL_SQS
 
+@task # added this to try to combat the timeout error on the normal speed full test
+def prepare_landing() -> None:
+    """Start this run with an empty raw fragments table, clears the data from the previous run and adds a landing table as needed."""
+    logger = get_run_logger()
+
+    with duckdb.connect(DUCKDB_PATH) as con:
+        con.execute("CREATE SCHEMA IF NOT EXISTS raw")
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS raw.fragments (
+                order_no VARCHAR,
+                word VARCHAR,
+                received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS raw.rejects (
+                message_id VARCHAR, 
+                attributes VARCHAR, 
+                received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        old_fragements = con.execute(
+            "SELECT COUNT(*) FROM raw.fragments"
+        ).fetchone()[0]
+
+        old_rejects = con.execute(
+                    "SELECT COUNT(*) FROM raw.rejects"
+        ).fetchone()[0]
+
+        con.execute("DELETE FROM raw.fragments")
+        con.execute("DELETE FROM raw.rejects")
+
+    logger.info("Prepared landing tables: removed %d fragments and %d rejects", old_fragements, old_rejects)
+
+# parse for chaos additions
+def parse(msg) -> tuple [str, str] | None:
+    """Return the order number and word, or None if the required attributes are invalid."""
+    a = msg.get("MessageAttributes", {})
+    try:
+        order_no = a["order_no"]["StringValue"]
+        word = a["word"]["StringValue"]
+    except KeyError:
+        return None                       # an attribute is missing
+    if not order_no.isdigit():
+        return None                       # position is not a number
+    return order_no, word
 
 @task
 def populate_queue() -> str: # returns a string
@@ -83,7 +133,7 @@ def get_counts(queue_url: str) -> dict: # returns a dictionary
     }
         
 
-@task
+@task #changed the updates to every 30 secs for the full test and back to 5 for the chaos test
 def monitor_queue(queue_url: str, poll_s: int = 5, timeout_s: int = 1200) -> dict:
     """Log the three counters every poll_s seconds until nothing is delayed; raise after timeout_s."""
     # TODO (Checkpoint A)
@@ -151,51 +201,96 @@ def collect_messages(queue_url: str, expected: int = 21, timeout_s: int = 1200) 
 
             # SQS may omit the "Messages" key if there are no messages available
             for msg in response.get("Messages", []): # iterates over the received messages
-                atts = msg["MessageAttributes"] # extracts the message attributes
-                order_no = atts["order_no"]["StringValue"] # extracts the order number from the message attributes
-                word = atts["word"]["StringValue"] # extracts the word from the message attributes
+                # atts = msg["MessageAttributes"] # extracts the message attributes
+                # order_no = atts["order_no"]["StringValue"] # extracts the order number from the message attributes
+                #word = atts["word"]["StringValue"] # extracts the word from the message attributes
 
-                existing = con.execute(
-                    "SELECT word FROM raw.fragments WHERE order_no = ?",
-                    [order_no],
-                ).fetchone() # checks if the message has already been stored in the database
+                # ------ CHAOS CODE -------
+                fragment = parse(msg)
+                if fragment is None:              # poison message
+                    logger.warning("Rejected malformed message %s",
+                                   msg["MessageId"])
+                    con.execute("insert into raw.rejects "
+                                "values (?, ?, current_timestamp)",
+                                [msg["MessageId"],
+                                 str(msg.get("MessageAttributes"))])
+                else:
+                    order_no, word = fragment
+                    existing = con.execute(
+                        "SELECT word FROM raw.fragments WHERE order_no = ?",
+                        [order_no],
+                    ).fetchone()
 
-                inserted = False # flag to track if the message was inserted
+                    if existing is None:
+                        con.execute(
+                            """
+                            INSERT INTO raw.fragments
+                                (order_no, word, received_at)
+                            VALUES (?, ?, current_timestamp)
+                            """,
+                            [order_no, word],
+                        )
+                        stored += 1
+                        logger.info(
+                            "Stored fragment: order_no=%s; stored=%d/%d",
+                            order_no, stored, expected,
+                        )
+                    elif existing[0] == word:
+                        logger.info(
+                            "Duplicate order_no=%s; counted once", order_no
+                        )
+                    else:
+                        # Keep the conflict so dbt's unique test can reject it.
+                        con.execute(
+                            """
+                            INSERT INTO raw.fragments
+                                (order_no, word, received_at)
+                            VALUES (?, ?, current_timestamp)
+                            """,
+                            [order_no, word],
+                        )
+                        logger.warning(
+                            "Conflicting word for order_no=%s; dbt will reject it",
+                            order_no,
+                        )
+                sqs.delete_message(QueueUrl=queue_url,       # always
+                                   ReceiptHandle=msg["ReceiptHandle"])
 
-                if not existing: # only insert the message if it hasn't been stored already
-                    con.execute(
-                        """
-                        INSERT INTO raw.fragments (order_no, word, received_at) \
-                        VALUES (?, ?, current_timestamp)
-                        """,
-                        [order_no, word], # inserts the order number and word into the DuckDB table
-                    )
-                    inserted = True
-                    stored += 1 # increments the stored counter
-
-                elif existing[0] != word: # checks if the existing word is different from the new word
-                    # needed to prevent duplicates!! 
-                    raise ValueError(
-                        f"Conflicting words for order_no {order_no}: existing={existing[0]}, new={word}"
-                    )
-                else: 
-                    logger.info(
-                        "Repeat delivery for order_no=%s; skipping insert", 
-                        order_no, 
-                    )
-
-                sqs.delete_message( # deletes the message from the queue to prevent reprocessing
-                    QueueUrl=queue_url,
-                    ReceiptHandle=msg["ReceiptHandle"]
-                )
-
-                if inserted: 
-                    logger.info(
-                        "Stored fragment: order_no=%s, word=%s; stored=%d/%d", 
-                        order_no, word, stored, expected
-                    )
-
-            
+                # ------- ORIGINAL CODE -------
+                # existing = con.execute(
+                #     "SELECT word FROM raw.fragments WHERE order_no = ?",
+                #     [order_no],
+                # ).fetchone() # checks if the message has already been stored in the database
+                # inserted = False # flag to track if the message was inserted
+                # if not existing: # only insert the message if it hasn't been stored already
+                #     con.execute(
+                #         """
+                #         INSERT INTO raw.fragments (order_no, word, received_at) \
+                #         VALUES (?, ?, current_timestamp)
+                #         """,
+                #         [order_no, word], # inserts the order number and word into the DuckDB table
+                #     )
+                #     inserted = True
+                #     stored += 1 # increments the stored counter
+                # elif existing[0] != word: # checks if the existing word is different from the new word
+                #     # needed to prevent duplicates!! 
+                #     raise ValueError(
+                #         f"Conflicting words for order_no {order_no}: existing={existing[0]}, new={word}"
+                #     )
+                # else: 
+                #     logger.info(
+                #         "Repeat delivery for order_no=%s; skipping insert", 
+                #         order_no, 
+                #     )
+                # sqs.delete_message( # deletes the message from the queue to prevent reprocessing
+                #     QueueUrl=queue_url,
+                #     ReceiptHandle=msg["ReceiptHandle"]
+                # )
+                # if inserted: 
+                #     logger.info(
+                #         "Stored fragment: order_no=%s, word=%s; stored=%d/%d", 
+                #         order_no, word, stored, expected
+                #     )
 
     except Exception as e:
         logger.error(f"Error occurred while executing DuckDB commands: {e}")
@@ -275,6 +370,7 @@ def submit_solution(phrase: str, platform: str = "prefect") -> int:
 
 @flow(name="dp2-pipeline", log_prints=True)
 def dp2_pipeline():
+    prepare_landing() # added this for the full run test to ensure that the raw.fragments table is empty before starting the pipeline
     queue_url = populate_queue()
     monitor_queue(queue_url)
     collect_messages(queue_url)
@@ -283,7 +379,6 @@ def dp2_pipeline():
     submit_solution(phrase)
 
     # TODO (Lesson 10): collect_messages -> dbt_build -> read_phrase -> submit_solution
-
 
 if __name__ == "__main__":
     dp2_pipeline()
