@@ -33,7 +33,6 @@ prefect server start')
 5. submit_solution: provides 2 retries in case it fails due to the wrong order or missing word. Returns the message attributes of UVA-ID, the phrase and the platform along with the HTTP status when submitting the solution. 
 
 
-
 ### Receive -> persist -> delete: 
 For each of the messages, (1) read 'order_no' and 'word' from 'MessageAttributes' (2) INSERT into 'raw.fragements, and then (3) 'delete_message'. If the message crashes between the save/insert step and the delete step (steps 2 and 3), the message reappears after the visibility timeout and is a "repeat delivery". This means that the code skips the insert (same order_no and word) but still deletes it. But, if it crashes before the insert step, nothing is lost because the message is still on the queue. This ensures that a fraqgment is never deleted before it is safely stored. 
 For example: INSERT EXAMPLE FROM SAME ORDER_NO
@@ -42,6 +41,24 @@ For example: INSERT EXAMPLE FROM SAME ORDER_NO
 The 'stg_fragments' trims and casts the 'order_no' to an integer and deduplicates all of the exact repeats (where 'order_no' and 'word' both match). For the uniqueness test: I added checks to ensure that both are non-null and that 'order_no' is unique. If there is a match, both rows remain in staging and the uniqueness test fails. 
 The 'assert_complete_sequence' tests that the staging (1) contains 21 fragments, (2) starts at order 1, (3) ends at order 21 and (4) has no gaps. 
 dbt then builds the 'assembled_phrase' only when all of the tests pass. 
+
+## Evidence Screenshots: 
+### Checkpoint A Screenshots: 
+Working prefect flow and SET-UP done correctly: 
+![DAG](docs/Checkpoint A - ss.png)
+![DAG](docs/Checkpoint A - ss 2.png)
+
+### Checkpoint C Screenshots:  
+From slides: 'dbt build --project-dir dbt --profiles-dir dbt' → FAIL on 'assert_complete_sequence', 'assembled_phrase' SKIP
+Screenshot: 
+![DAG](docs/failed_test.png)
+
+Second test: add ('7', 'oops', current_timestamp) to a clean table: unique fails too. 
+Screenshot: 
+![DAG](docs/conflicting_test.png)
+
+Third test: fixed and rerun to all green: 
+Screenshot: ![DAG](docs/all_passing_test.png)
 
 ## Git-Ignore:
 `.env`, `*.duckdb`, `dbt/target/` and logs are git-ignored.
